@@ -229,8 +229,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   window.firebaseSaveLedger = async function (payload) {
     if (!db) throw new Error("Firebase가 초기화되지 않았습니다 (firebaseConfig를 확인하세요)");
+    // Firestore는 배열 안에 배열이 중첩된 형태(nested array)를 지원하지 않으므로
+    // 전체 payload를 JSON 문자열 하나로 직렬화해서 저장합니다.
     const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
-    await setDoc(ref, { payload: payload, updatedAt: new Date().toISOString() });
+    await setDoc(ref, { json: JSON.stringify(payload), updatedAt: new Date().toISOString() });
   };
 
   window.firebaseLoadLedger = async function () {
@@ -239,7 +241,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const snap = await getDoc(ref);
     if (!snap.exists()) return { data: null, updatedAt: null };
     const d = snap.data();
-    return { data: d.payload, updatedAt: d.updatedAt };
+    let parsed = null;
+    try { parsed = d.json ? JSON.parse(d.json) : null; } catch (e) { throw new Error("저장된 데이터를 읽는 중 오류가 발생했습니다"); }
+    return { data: parsed, updatedAt: d.updatedAt };
   };
 </script>
 
