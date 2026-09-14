@@ -45,8 +45,15 @@
   header.hero .grand .value { font-size:clamp(26px,4vw,38px); font-weight:700; color:#fceecb; margin-top:4px; }
   header.hero .grand .hint { font-size:11.5px; color:#d8b9a9; margin-top:6px; }
   .io-bar { margin-top:18px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .io-bar-secondary { margin-top:8px; }
   .io-btn { background:rgba(255,255,255,0.1); color:#fceecb; border:1px solid rgba(255,255,255,0.4); }
   .io-btn:hover { background:#fceecb; color:var(--burgundy-deep); }
+  .io-btn-sm {
+    background:transparent; color:#e7d3c9; border:1px solid rgba(255,255,255,0.25);
+    font-size:12px; padding:5px 12px; border-radius:20px; cursor:pointer;
+  }
+  .io-btn-sm:hover { background:rgba(255,255,255,0.12); color:#fff; }
+  .cloud-status { font-size:12px; color:#d8b9a9; margin-top:10px; min-height:16px; }
   #toast {
     position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
     background:var(--burgundy-deep); color:#fceecb; padding:10px 22px; border-radius:24px;
@@ -187,6 +194,55 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </head>
 <body>
 
+
+<!-- ======================================================================
+     Firebase 연동 (Firestore)
+     아래 firebaseConfig 값을 본인 Firebase 프로젝트 설정값으로 교체하세요.
+     Firebase 콘솔 → 프로젝트 설정(톱니바퀴) → 일반 → "내 앱" → 웹 앱 → SDK 설정 및 구성
+     에서 그대로 복사해서 붙여넣으면 됩니다.
+     databaseId는 스크린샷 기준 "moneygift" (기본 데이터베이스가 아니라 별도로 만든
+     이름 있는 데이터베이스이므로 getFirestore(app, "moneygift") 형태로 지정해야 합니다).
+     ====================================================================== -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "여기에_API_KEY",
+    authDomain: "여기에_PROJECT_ID.firebaseapp.com",
+    projectId: "여기에_PROJECT_ID",
+    storageBucket: "여기에_PROJECT_ID.appspot.com",
+    messagingSenderId: "여기에_SENDER_ID",
+    appId: "여기에_APP_ID"
+  };
+
+  const DATABASE_ID = "moneygift"; // Firestore 콘솔에서 만든 이름 있는 데이터베이스 이름
+  const DOC_PATH = ["ledger", "data"]; // 컬렉션명, 문서ID - 처음 저장할 때 자동 생성됨
+
+  let db = null;
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app, DATABASE_ID);
+  } catch (e) {
+    console.error("Firebase 초기화 실패:", e);
+  }
+
+  window.firebaseSaveLedger = async function (payload) {
+    if (!db) throw new Error("Firebase가 초기화되지 않았습니다 (firebaseConfig를 확인하세요)");
+    const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
+    await setDoc(ref, { payload: payload, updatedAt: new Date().toISOString() });
+  };
+
+  window.firebaseLoadLedger = async function () {
+    if (!db) throw new Error("Firebase가 초기화되지 않았습니다 (firebaseConfig를 확인하세요)");
+    const ref = doc(db, DOC_PATH[0], DOC_PATH[1]);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return { data: null, updatedAt: null };
+    const d = snap.data();
+    return { data: d.payload, updatedAt: d.updatedAt };
+  };
+</script>
+
 <header class="hero">
   <div class="eyebrow">WEDDING GIFT LEDGER · 2026. 09. 13 (일)</div>
   <h1>진민기 ❤ 이보름 결혼식 축의금 · 방문자 정리</h1>
@@ -197,9 +253,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <div class="hint">표를 수정하면 자동으로 다시 계산되고, 이 브라우저에 자동 저장됩니다</div>
   </div>
   <div class="io-bar">
-    <button class="btn io-btn" id="btn-export">💾 전체 저장 (파일로 다운로드)</button>
-    <button class="btn io-btn" id="btn-import">📂 저장한 파일 불러오기</button>
-    <button class="btn io-btn" id="btn-export-xlsx-all">📊 전체 엑셀 (표별 시트로 한 파일에)</button>
+    <button class="btn io-btn" id="btn-cloud-save">☁️ 클라우드에 저장</button>
+    <button class="btn io-btn" id="btn-cloud-load">☁️ 클라우드에서 불러오기</button>
+  </div>
+  <div class="cloud-status" id="cloud-status"></div>
+  <div class="io-bar io-bar-secondary">
+    <button class="btn io-btn-sm" id="btn-export">💾 파일로 다운로드</button>
+    <button class="btn io-btn-sm" id="btn-import">📂 파일 불러오기</button>
+    <button class="btn io-btn-sm" id="btn-export-xlsx-all">📊 전체 엑셀</button>
     <input type="file" id="file-import" accept="application/json" style="display:none">
   </div>
 </header>
@@ -227,7 +288,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <div class="summary-card"><div class="lbl">부모님 관련 축의금(전달+계좌)</div><div class="val" id="card-parents-val">32,650,000원</div><div class="cnt" id="card-parents-cnt">198건</div></div>
     <div class="summary-card"><div class="lbl">화환 보내신 분</div><div class="val" id="card-wreath-val">18건</div><div class="cnt">화환·화분 등</div></div>
     <div class="summary-card"><div class="lbl">식권 배부 매수</div><div class="val" id="card-meal-val">145매</div><div class="cnt" id="card-meal-cnt">128명</div></div>
-    <div class="summary-card"><div class="lbl">방명록 서명 인원</div><div class="val" id="card-guestbook-cnt">87명</div><div class="cnt" id="card-guestbook-match">-</div></div>
+    <div class="summary-card"><div class="lbl">방명록 서명 인원</div><div class="val" id="card-guestbook-cnt">145명</div><div class="cnt" id="card-guestbook-match">-</div></div>
     <div class="summary-card"><div class="lbl">고액(50만원 이상) 인원</div><div class="val" id="card-top-cnt">-</div><div class="cnt">아래 표들 종합, 자동 계산</div></div>
   </div>
   <div class="note-box">
@@ -242,10 +303,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   <p class="desc">아래 계좌이체 축의금·당일 방문 축의금·부모님 계좌 3곳을 종합해서, 50만원 이상인 항목만 자동으로 모아 보여줍니다. 이 표는 직접 수정할 수 없고, 원본 표를 고치면 여기도 자동으로 갱신됩니다.</p>
   
 <div class="table-wrap " data-table-id="tbl-top">
-  <table id="tbl-top" class="edit-table" data-amt-col="3" data-unit="원" data-xlsx-name="고액축의금하이라이트" data-editable="false">
+  <table id="tbl-top" class="edit-table" data-amt-col="3" data-unit="원" data-xlsx-name="고액축의금하이라이트" data-editable="false" data-computed-col="5">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>소속/메모</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>구분(출처)</span><span class='sort-ind'></span></th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>소속/메모</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>구분(출처)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>방명록</span><span class='sort-ind'></span></th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -265,10 +326,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   <p class="desc">2026.08.20 ~ 09.14 신랑 통장으로 입금된 축의금 내역입니다.</p>
   
 <div class="table-wrap " data-table-id="tbl-bank">
-  <table id="tbl-bank" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="계좌이체축의금_신랑통장" data-editable="true">
+  <table id="tbl-bank" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="계좌이체축의금_신랑통장" data-editable="true" data-computed-col="6">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='6'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='6' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -281,13 +342,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-bank"></div>
 </div>
-<script type="application/json" id="data-tbl-bank">[["1", "2026-09-14", "강민식", "라이온스", "100000", ""], ["2", "2026-09-13", "김태규", "애플부동산", "100000", ""], ["3", "2026-09-13", "최영민", "라이온스", "100000", ""], ["4", "2026-09-13", "김승연", "라이온스", "100000", ""], ["5", "2026-09-13", "유학현", "라이온스", "100000", ""], ["6", "2026-09-13", "김현식", "친구", "300000", ""], ["7", "2026-09-13", "김세환", "라이온스", "100000", ""], ["8", "2026-09-13", "권혁진", "라이온스", "100000", ""], ["9", "2026-09-13", "오재석", "라이온스", "100000", ""], ["10", "2026-09-13", "이관우", "라이온스", "100000", ""], ["11", "2026-09-13", "최태환", "라이온스", "100000", ""], ["12", "2026-09-13", "이철호", "라이온스", "100000", ""], ["13", "2026-09-13", "이승제", "라이온스", "100000", ""], ["14", "2026-09-13", "성기빈", "라이온스", "100000", ""], ["15", "2026-09-12", "이세환", "라이온스", "50000", ""], ["16", "2026-09-12", "송선태", "라이온스", "100000", ""], ["17", "2026-09-12", "김경완", "라이온스", "50000", ""], ["18", "2026-09-12", "최현찬", "친구_북해도", "100000", ""], ["19", "2026-09-10", "김세윤", "라이온스", "100000", ""], ["20", "2026-09-08", "류창현", "라이온스", "100000", ""], ["21", "2026-09-08", "박종근", "라이온스", "100000", ""], ["22", "2026-09-07", "박기완", "라이온스", "100000", ""], ["23", "2026-08-20", "유태종", "라이온스", "100000", ""]]</script>
+<script type="application/json" id="data-tbl-bank">[["1", "2026-09-14", "강민식", "라이온스", "100000", "", ""], ["2", "2026-09-13", "김태규", "애플부동산", "100000", "", ""], ["3", "2026-09-13", "최영민", "라이온스", "100000", "", ""], ["4", "2026-09-13", "김승연", "라이온스", "100000", "", ""], ["5", "2026-09-13", "유학현", "라이온스", "100000", "", ""], ["6", "2026-09-13", "김현식", "친구", "300000", "", ""], ["7", "2026-09-13", "김세환", "라이온스", "100000", "", ""], ["8", "2026-09-13", "권혁진", "라이온스", "100000", "", ""], ["9", "2026-09-13", "오재석", "라이온스", "100000", "", ""], ["10", "2026-09-13", "이관우", "라이온스", "100000", "", ""], ["11", "2026-09-13", "최태환", "라이온스", "100000", "", ""], ["12", "2026-09-13", "이철호", "라이온스", "100000", "", ""], ["13", "2026-09-13", "이승제", "라이온스", "100000", "", ""], ["14", "2026-09-13", "성기빈", "라이온스", "100000", "", ""], ["15", "2026-09-12", "이세환", "라이온스", "50000", "", ""], ["16", "2026-09-12", "송선태", "라이온스", "100000", "", ""], ["17", "2026-09-12", "김경완", "라이온스", "50000", "", ""], ["18", "2026-09-12", "최현찬", "친구_북해도", "100000", "", ""], ["19", "2026-09-10", "김세윤", "라이온스", "100000", "", ""], ["20", "2026-09-08", "류창현", "라이온스", "100000", "", ""], ["21", "2026-09-08", "박종근", "라이온스", "100000", "", ""], ["22", "2026-09-07", "박기완", "라이온스", "100000", "", ""], ["23", "2026-08-20", "유태종", "라이온스", "100000", "", ""]]</script>
 
 </section>
 
 <section id="venue">
   <h2>당일 식장 방문 축의금 (Guest book) <span class="sub-total" id="header-venue-total">소계 37,900,000원</span></h2>
-  <p class="desc">식장에서 직접 받은 방명록 겸 축의금 기록입니다. "방명록" 열은 아래 식장 방명록 표에 같은 이름이 있는지 자동으로 확인해 표시합니다 — 두 표 중 어느 쪽을 수정해도 실시간으로 다시 계산됩니다.</p>
+  <p class="desc">식장에서 직접 받은 방명록 겸 축의금 기록입니다. "방명록" 열은 아래 식장 방명록 표에 같은 이름이 있는지 자동으로 확인해 표시합니다 — 이 표를 포함해 아래 모든 표가 방명록 표와 실시간으로 서로 연동됩니다.</p>
   <div class="legend">
     <span><span class="swatch top"></span> 100만원 이상 (자동 강조)</span>
     <span><span class="swatch mid"></span> 50만원 ~ 99만원 (자동 강조)</span>
@@ -310,13 +371,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-venue"></div>
 </div>
-<script type="application/json" id="data-tbl-venue">[["1", "김용선", "금왕", "1000000", "", ""], ["2", "정영희", "", "300000", "", ""], ["3", "김아란", "", "300000", "", ""], ["4", "이경연", "", "200000", "", ""], ["5", "최아인", "", "200000", "", ""], ["6", "김영복", "", "500000", "", ""], ["7", "김선희", "죽전", "200000", "", ""], ["8", "박인수", "", "2000000", "", ""], ["9", "박상영", "", "500000", "", ""], ["10", "황득세", "", "500000", "", ""], ["11", "황은효", "", "3000000", "", ""], ["12", "진나리", "", "200000", "", ""], ["13", "우경애", "만지시댁", "100000", "", ""], ["14", "황민지", "", "1000000", "", ""], ["15", "허종식", "청원골프", "100000", "", ""], ["16", "박노재", "", "500000", "", ""], ["17", "양상돈", "", "200000", "", ""], ["18", "임만택", "우석CEO4기", "100000", "", ""], ["19", "선우.은주", "", "200000", "", ""], ["20", "김형철", "우사기", "300000", "", ""], ["21", "정우혁", "한라석재", "300000", "", ""], ["22", "김정구", "", "100000", "", ""], ["23", "장세진", "청원골프", "100000", "", ""], ["24", "이찬우", "", "500000", "", ""], ["25", "이종선", "복덩이", "100000", "", ""], ["26", "김억권", "복덩이", "100000", "", ""], ["27", "곽건호", "복덩이", "100000", "", ""], ["28", "박이권", "복덩이", "100000", "", ""], ["29", "윤기환", "상촌이장", "100000", "", ""], ["30", "채만병", "", "200000", "", ""], ["31", "김명숙", "월촌부녀회장", "100000", "", ""], ["32", "백정순", "서강레미콘", "300000", "", ""], ["33", "이정주", "아월면", "200000", "", ""], ["34", "윤춘욱", "상촌부녀회장", "100000", "", ""], ["35", "송성종", "복덩이", "100000", "", ""], ["36", "정욱준", "한일산업", "500000", "", ""], ["37", "복덩이골프회", "", "100000", "", ""], ["38", "이벽희", "복덩이 총무", "100000", "", ""], ["39", "진유식", "", "100000", "", ""], ["40", "박순복", "", "200000", "", ""], ["41", "박희근", "삼목회(26회)", "100000", "", ""], ["42", "심만규", "복덩이", "100000", "", ""], ["43", "우성우", "복덩이", "100000", "", ""], ["44", "강승배", "복덩이", "100000", "", ""], ["45", "이중호", "", "300000", "", ""], ["46", "송주현", "서강", "100000", "", ""], ["47", "이요한", "", "400000", "", ""], ["48", "이상윤", "우석대", "500000", "", ""], ["49", "김희수", "(주)음성철강", "100000", "", ""], ["50", "김희철", "복덩이", "100000", "", ""], ["51", "홍민혁", "", "200000", "", ""], ["52", "정관영", "", "200000", "", ""], ["53", "김연건", "복덩이", "200000", "", ""], ["54", "우4기 화환", "", "100000", "", ""], ["55", "윤정희", "우4기 사무국장", "100000", "", ""], ["56", "이병현", "", "200000", "", ""], ["57", "이용해", "", "300000", "", ""], ["58", "이상규", "", "200000", "", ""], ["59", "박종훈", "정도산업(주)", "300000", "", ""], ["60", "황종호", "", "500000", "", ""], ["61", "박문수", "", "1000000", "", ""], ["62", "박성수", "수원", "200000", "", ""], ["63", "안동주", "삼목회", "100000", "", ""], ["64", "나성호", "", "100000", "", ""], ["65", "이군영", "", "500000", "", ""], ["66", "윤석구", "", "100000", "", ""], ["67", "안병극", "", "100000", "", ""], ["68", "황정호", "", "300000", "", ""], ["69", "신상민", "", "100000", "", ""], ["70", "김경섭", "삼목회", "100000", "", ""], ["71", "황희숙", "", "300000", "", ""], ["72", "황순녀", "", "200000", "", ""], ["73", "이영주", "", "200000", "", ""], ["74", "황순익", "", "100000", "", ""], ["75", "임지상", "", "500000", "", ""], ["76", "양해봉", "청원회", "200000", "", ""], ["77", "정문섭", "청원회", "100000", "", ""], ["78", "성기광", "썬시멘트(주)", "300000", "", ""], ["79", "진훈식", "세종시", "50000", "", ""], ["80", "김영수", "삼목회", "100000", "", ""], ["81", "김명구", "하나중기실업", "200000", "", ""], ["82", "황경아", "", "300000", "", ""], ["83", "김하은", "세련친구", "500000", "", ""], ["84", "진병국", "", "500000", "", ""], ["85", "장양석", "복덩이", "200000", "", ""], ["86", "김영준.정역숙", "삼목회", "100000", "", ""], ["87", "서남택", "", "100000", "", ""], ["88", "진은선", "", "200000", "", ""], ["89", "장수정", "진천상공회의소", "100000", "", ""], ["90", "이유림", "진천상공회의소 사무국장", "100000", "", ""], ["91", "진병익", "친구", "200000", "", ""], ["92", "진병성", "", "150000", "", ""], ["93", "홍광표.진순남", "재전", "300000", "", ""], ["94", "진광식", "친구", "100000", "", ""], ["95", "홍인의", "", "200000", "", ""], ["96", "이정훈", "", "300000", "", ""], ["97", "구문모", "", "100000", "", ""], ["98", "김현", "", "200000", "", ""], ["99", "임재만", "세종시", "300000", "", ""], ["100", "임태숙", "", "200000", "", ""], ["101", "이선주", "천성산업", "200000", "", ""], ["102", "이영성", "", "500000", "", ""], ["103", "고제시", "", "100000", "", ""], ["104", "박흥수", "친구", "200000", "", ""], ["105", "김희섭", "", "300000", "", ""], ["106", "송범준", "", "100000", "", ""], ["107", "이동신", "", "200000", "", ""], ["108", "고제격", "", "300000", "", ""], ["109", "박철우", "", "200000", "", ""], ["110", "박차덕", "대구", "300000", "", ""], ["111", "박주현", "", "200000", "", ""], ["112", "이종헌", "청원골프회", "200000", "", ""], ["113", "김대홍", "서강", "100000", "", ""], ["114", "김윤섭", "서강", "300000", "", ""], ["115", "정청자", "대구", "300000", "", ""], ["116", "박미화", "대구", "200000", "", ""], ["117", "박미자", "포항", "200000", "", ""], ["118", "정승우", "", "200000", "", ""], ["119", "정설향", "", "100000", "", ""], ["120", "정정호", "", "200000", "", ""], ["121", "정인제", "", "200000", "", ""], ["122", "이재명", "진천라이온스", "200000", "", ""], ["123", "신우람", "진천라이온스", "200000", "", ""], ["124", "조현준", "진천라이온스", "100000", "", ""], ["125", "유인규", "진천라이온스", "200000", "", ""], ["126", "진천상공회의소 회원일동", "", "100000", "", ""], ["127", "임성진", "우제주유소", "100000", "", ""], ["128", "진은주", "", "200000", "", ""], ["129", "김래원", "", "100000", "", ""], ["130", "유종찬", "", "100000", "", ""], ["131", "홍충현", "", "300000", "", ""], ["132", "이민규", "", "300000", "", ""], ["133", "김영(회)호", "서강레미콘", "200000", "", ""], ["134", "경규호", "", "200000", "", ""], ["135", "이창군", "복덩이", "200000", "", ""], ["136", "고제경", "", "200000", "", ""], ["137", "황철호", "", "300000", "", ""], ["138", "최병윤(이사장)", "충북레미콘공업협동조합", "300000", "", ""], ["139", "박병용(상무이사)", "충북레미콘공업협동조합", "100000", "", ""], ["140", "김웅종(대표이사)", "아세아시멘트", "500000", "", ""], ["141", "이동창(영업본부장)", "아세아시멘트", "200000", "", ""], ["142", "박인환(시멘트영업팀)", "아세아시멘트", "200000", "", ""], ["143", "박상훈", "아세아시멘트", "100000", "", ""], ["144", "이윤신", "", "200000", "", ""], ["145", "문동현", "UB", "100000", "", ""], ["146", "박정민", "덕산지에스", "500000", "", ""]]</script>
+<script type="application/json" id="data-tbl-venue">[["1", "김용선", "금왕", "1000000", "", ""], ["2", "정영희", "", "300000", "", ""], ["3", "김아란", "", "300000", "", ""], ["4", "이경연", "", "200000", "", ""], ["5", "최아인", "", "200000", "", ""], ["6", "김영복", "", "500000", "", ""], ["7", "김선희", "죽전", "200000", "", ""], ["8", "박인수", "", "2000000", "", ""], ["9", "박상영", "", "500000", "", ""], ["10", "황득세", "", "500000", "", ""], ["11", "황은호", "", "3000000", "", ""], ["12", "진나리", "", "200000", "", ""], ["13", "우경애", "민지시댁", "100000", "", ""], ["14", "황민지", "", "1000000", "", ""], ["15", "허중식", "청원골프", "100000", "", ""], ["16", "박노재", "", "500000", "", ""], ["17", "양상돈", "", "200000", "", ""], ["18", "임만택", "우석CEO4기", "100000", "", ""], ["19", "선우, 은주", "", "200000", "", ""], ["20", "김형철", "우사기", "300000", "", ""], ["21", "정우혁", "한라석재", "300000", "", ""], ["22", "김정구", "", "100000", "", ""], ["23", "장세진", "청원골프", "100000", "", ""], ["24", "이찬우", "", "500000", "", ""], ["25", "이종선", "복덩이", "100000", "", ""], ["26", "김억권", "복덩이", "100000", "", ""], ["27", "곽건호", "복덩이", "100000", "", ""], ["28", "박이권", "복덩이", "100000", "", ""], ["29", "윤기환", "상촌이장", "100000", "", ""], ["30", "채만병", "", "200000", "", ""], ["31", "김명숙", "월촌부녀회장", "100000", "", ""], ["32", "백정순", "서강레미콘", "300000", "", ""], ["33", "이정주", "아월면", "200000", "", ""], ["34", "윤춘욱", "상촌부녀회장", "100000", "", ""], ["35", "송성종", "복덩이", "100000", "", ""], ["36", "정욱준", "한일산업", "500000", "", ""], ["37", "복덩이골프회", "", "100000", "", ""], ["38", "이벽희", "복덩이 총무", "100000", "", ""], ["39", "진유식", "", "100000", "", ""], ["40", "박순복", "", "200000", "", ""], ["41", "박희근", "삼목회(26회)", "100000", "", ""], ["42", "심만규", "복덩이", "100000", "", ""], ["43", "우성우", "복덩이", "100000", "", ""], ["44", "강승배", "복덩이", "100000", "", ""], ["45", "이중호", "", "300000", "", ""], ["46", "송주현", "서강", "100000", "", ""], ["47", "이요한", "", "400000", "", ""], ["48", "이상윤", "우석대", "500000", "", ""], ["49", "김희수", "(주)음성철강", "100000", "", ""], ["50", "김희철", "복덩이", "100000", "", ""], ["51", "홍민혁", "", "200000", "", ""], ["52", "정관영", "", "200000", "", ""], ["53", "김연건", "복덩이", "200000", "", ""], ["54", "우4기 화환", "", "100000", "", ""], ["55", "윤정희", "우4기 사무국장", "100000", "", ""], ["56", "이병현", "", "200000", "", ""], ["57", "이용해", "", "300000", "", ""], ["58", "이상규", "", "200000", "", ""], ["59", "박종훈", "정도산업(주)", "300000", "", ""], ["60", "황종호", "", "500000", "", ""], ["61", "박문수", "", "1000000", "", ""], ["62", "박성수", "수원", "200000", "", ""], ["63", "안동주", "삼목회", "100000", "", ""], ["64", "나성호", "", "100000", "", ""], ["65", "이준영", "", "500000", "", ""], ["66", "윤석구", "", "100000", "", ""], ["67", "안병국", "", "100000", "", ""], ["68", "황정호", "", "300000", "", ""], ["69", "신상민", "", "100000", "", ""], ["70", "김경섭", "삼목회", "100000", "", ""], ["71", "황희숙", "", "300000", "", ""], ["72", "황순녀", "", "200000", "", ""], ["73", "이영주", "", "200000", "", ""], ["74", "황순익", "", "100000", "", ""], ["75", "임지상", "", "500000", "", ""], ["76", "양해봉", "청원회", "200000", "", ""], ["77", "정문섭", "청원회", "100000", "", ""], ["78", "성기광", "썬시멘트(주)", "300000", "", ""], ["79", "진훈식", "세종시", "50000", "", ""], ["80", "김영수", "삼목회", "100000", "", ""], ["81", "김명구", "하나중기실업", "200000", "", ""], ["82", "황경아", "", "300000", "", ""], ["83", "김하은", "세련친구", "500000", "", ""], ["84", "진병국", "", "500000", "", ""], ["85", "장양석", "복덩이", "200000", "", ""], ["86", "김영준, 정역숙", "삼목회", "100000", "", ""], ["87", "서남택", "", "100000", "", ""], ["88", "진은선", "", "200000", "", ""], ["89", "장수정", "진천상공회의소", "100000", "", ""], ["90", "이유림", "진천상공회의소 사무국장", "100000", "", ""], ["91", "진병익", "친구", "200000", "", ""], ["92", "진병성", "", "150000", "", ""], ["93", "홍광표, 진순남", "재전", "300000", "", ""], ["94", "진광식", "친구", "100000", "", ""], ["95", "홍인의", "", "200000", "", ""], ["96", "이정훈", "", "300000", "", ""], ["97", "구문모", "", "100000", "", ""], ["98", "김현", "", "200000", "", ""], ["99", "임재만", "세종시", "300000", "", ""], ["100", "임태숙", "", "200000", "", ""], ["101", "이선주", "천성산업", "200000", "", ""], ["102", "이영성", "", "500000", "", ""], ["103", "고제시", "", "100000", "", ""], ["104", "박흥수", "친구", "200000", "", ""], ["105", "김희섭", "", "300000", "", ""], ["106", "송범준", "", "100000", "", ""], ["107", "이동신", "", "200000", "", ""], ["108", "고제격", "", "300000", "", ""], ["109", "박철우", "", "200000", "", ""], ["110", "박차덕", "대구", "300000", "", ""], ["111", "박주현", "", "200000", "", ""], ["112", "이종헌", "청원골프회", "200000", "", ""], ["113", "김대홍", "서강", "100000", "", ""], ["114", "김윤섭", "서강", "300000", "", ""], ["115", "정청자", "대구", "300000", "", ""], ["116", "박미화", "대구", "200000", "", ""], ["117", "박미자", "포항", "200000", "", ""], ["118", "정승우", "", "200000", "", ""], ["119", "정설향", "", "100000", "", ""], ["120", "정정호", "", "200000", "", ""], ["121", "정인제", "", "200000", "", ""], ["122", "이재명", "진천라이온스", "200000", "", ""], ["123", "신우람", "진천라이온스", "200000", "", ""], ["124", "조현준", "진천라이온스", "100000", "", ""], ["125", "유인규", "진천라이온스", "200000", "", ""], ["126", "진천상공회의소 회원일동", "", "100000", "", ""], ["127", "임성진", "우제주유소", "100000", "", ""], ["128", "진은주", "", "200000", "", ""], ["129", "김래원", "", "100000", "", ""], ["130", "유종찬", "", "100000", "", ""], ["131", "홍충현", "", "300000", "", ""], ["132", "이민규", "", "300000", "", ""], ["133", "김영회", "서강레미콘", "200000", "", ""], ["134", "경규호", "", "200000", "", ""], ["135", "이창군", "복덩이", "200000", "", ""], ["136", "고제경", "", "200000", "", ""], ["137", "황철호", "", "300000", "", ""], ["138", "최병윤", "충북레미콘공업협동조합", "300000", "이사장", ""], ["139", "박병용", "충북레미콘공업협동조합", "100000", "상무이사", ""], ["140", "김웅종", "아세아시멘트", "500000", "대표이사", ""], ["141", "이동창", "아세아시멘트", "200000", "영업본부장", ""], ["142", "박인환", "아세아시멘트", "200000", "시멘트영업팀", ""], ["143", "박상훈", "아세아시멘트", "100000", "", ""], ["144", "이윤신", "", "200000", "", ""], ["145", "문동현", "UB", "100000", "", ""], ["146", "박정민", "덕산지에스", "500000", "", ""]]</script>
 
 </section>
 
 <section id="guestbook">
-  <h2>식장 방명록 (서명 명단) <span class="sub-total" id="header-guestbook-total">87명</span></h2>
-  <p class="desc">결혼식장에 비치된 방명록에 이름을 적어주신 분들입니다. 세로쓰기 흘림체라 일부 이름은 판독이 어려울 수 있습니다 — 틀린 이름은 표에서 바로 고쳐주세요. 위 '당일 방문 축의금' 표의 "방명록" 열이 이 표를 참고해서 자동으로 갱신됩니다.</p>
+  <h2>식장 방명록 (서명 명단) <span class="sub-total" id="header-guestbook-total">145명</span></h2>
+  <p class="desc">결혼식장에 비치된 방명록에 이름을 적어주신 분들입니다. 세로쓰기 흘림체라 일부 이름은 판독이 어려울 수 있습니다 — 틀린 이름은 표에서 바로 고쳐주세요. 이 표를 수정하면 계좌이체·당일 방문·부모님 계좌·화환·선물·식권·고액 축의금 등 아래 모든 표의 "방명록" 열이 함께 자동으로 갱신됩니다.</p>
   
 <div class="table-wrap " data-table-id="tbl-guestbook">
   <table id="tbl-guestbook" class="edit-table" data-amt-col="-1" data-unit="" data-xlsx-name="식장방명록" data-editable="true">
@@ -335,7 +396,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-guestbook"></div>
 </div>
-<script type="application/json" id="data-tbl-guestbook">[["1", "정영희", ""], ["2", "김아란", ""], ["3", "김선희", ""], ["4", "최아인", ""], ["5", "이경연", ""], ["6", "김용선", ""], ["7", "김영복", ""], ["8", "황은호", ""], ["9", "황득세", ""], ["10", "박인수", ""], ["11", "황경미", ""], ["12", "박장영", ""], ["13", "진나리", ""], ["14", "김형철", ""], ["15", "이영주", ""], ["16", "고경란", ""], ["17", "선세라", ""], ["18", "임안택", ""], ["19", "선우주", ""], ["20", "이병현", ""], ["21", "정우혁", ""], ["22", "김정구", ""], ["23", "장세진", ""], ["24", "이찬우", ""], ["25", "박이권", ""], ["26", "윤기환", ""], ["27", "윤춘욱", ""], ["28", "김명숙", ""], ["29", "채만병", ""], ["30", "송성종", ""], ["31", "김연건", ""], ["32", "이정주", ""], ["33", "백정순", ""], ["34", "정욱준", ""], ["35", "진유식", ""], ["36", "박순복", ""], ["37", "박희근", ""], ["38", "이중호", ""], ["39", "이상윤", ""], ["40", "홍민혁", ""], ["41", "송주현", ""], ["42", "이요한", ""], ["43", "이용해", ""], ["44", "이상규", ""], ["45", "박종훈", ""], ["46", "황종호", ""], ["47", "박병용", ""], ["48", "황철호", ""], ["49", "황순녀", ""], ["50", "양해봉", ""], ["51", "고제경", ""], ["52", "김경섭", ""], ["53", "진병국", ""], ["54", "임지상", ""], ["55", "정문섭", ""], ["56", "김영수", ""], ["57", "진은선", ""], ["58", "김명구", ""], ["59", "황경아", ""], ["60", "김하은", ""], ["61", "서남택", ""], ["62", "임성진", ""], ["63", "이유림", ""], ["64", "박흥수", ""], ["65", "진광식", ""], ["66", "진병성", ""], ["67", "홍인의", ""], ["68", "홍광표·진순남", ""], ["69", "이영성", ""], ["70", "임태숙", ""], ["71", "구문모", ""], ["72", "임재만", ""], ["73", "이선주", ""], ["74", "진병익", ""], ["75", "고제시", ""], ["76", "진병용", ""], ["77", "이재명", ""], ["78", "신우람", ""], ["79", "조현준", ""], ["80", "유인규", ""], ["81", "정청자", ""], ["82", "김희섭", ""], ["83", "송범준", ""], ["84", "이종헌", ""], ["85", "박철우", ""], ["86", "박차덕", ""], ["87", "김윤섭", ""]]</script>
+<script type="application/json" id="data-tbl-guestbook">[["1", "정영희", "방명록 1페이지"], ["2", "김아란", "방명록 1페이지"], ["3", "김선희", "방명록 2페이지"], ["4", "최아인", "방명록 2페이지"], ["5", "이경연", "방명록 2페이지"], ["6", "김용선", "방명록 2페이지"], ["7", "김영복", "방명록 2페이지"], ["8", "황은호", "방명록 3페이지"], ["9", "황득세", "방명록 3페이지"], ["10", "박인수", "방명록 3페이지"], ["11", "황경미", "방명록 3페이지"], ["12", "박상영", "방명록 3페이지"], ["13", "진나리", "방명록 3페이지"], ["14", "김형철", "방명록 3페이지"], ["15", "이영주", "방명록 3페이지"], ["16", "고경란", "방명록 3페이지"], ["17", "선세라", "방명록 3페이지"], ["18", "임만택", "방명록 3페이지"], ["19", "선우, 은주", "방명록 3페이지"], ["20", "이병현", "방명록 3페이지"], ["21", "정우혁", "방명록 4페이지"], ["22", "김정구", "방명록 4페이지"], ["23", "장세진", "방명록 4페이지"], ["24", "이찬우", "방명록 4페이지"], ["25", "박이권", "방명록 4페이지"], ["26", "윤기환", "방명록 4페이지"], ["27", "윤춘욱", "방명록 4페이지"], ["28", "김명숙", "방명록 4페이지"], ["29", "채만병", "방명록 4페이지"], ["30", "송성종", "방명록 4페이지"], ["31", "김연건", "방명록 4페이지"], ["32", "이정주", "방명록 4페이지"], ["33", "백정순", "방명록 4페이지"], ["34", "정욱준", "방명록 4페이지"], ["35", "진유식", "방명록 5페이지"], ["36", "박순복", "방명록 5페이지"], ["37", "박희근", "방명록 5페이지"], ["38", "이중호", "방명록 5페이지"], ["39", "이상윤", "방명록 5페이지"], ["40", "홍민혁", "방명록 5페이지"], ["41", "송주현", "방명록 5페이지"], ["42", "이요한", "방명록 5페이지"], ["43", "이용해", "방명록 6페이지"], ["44", "이상규", "방명록 6페이지"], ["45", "박종훈", "방명록 6페이지"], ["46", "황종호", "방명록 6페이지"], ["47", "박병용", "방명록 7페이지"], ["48", "황철호", "방명록 7페이지"], ["49", "황순녀", "방명록 7페이지"], ["50", "양해봉", "방명록 7페이지"], ["51", "고제경", "방명록 7페이지"], ["52", "김경섭", "방명록 7페이지"], ["53", "진병국", "방명록 9페이지/ 진병성 중복"], ["54", "임지상", "방명록 7페이지"], ["55", "정문섭", "방명록 7페이지"], ["56", "김영수", "방명록 8페이지"], ["57", "진은선", "방명록 8페이지"], ["58", "김명구", "방명록 8페이지"], ["59", "황경아", "방명록 8페이지"], ["60", "김하은", "방명록 8페이지"], ["61", "서남택", "방명록 8페이지"], ["62", "임성진", "방명록 8페이지"], ["63", "이유림", "방명록 8페이지"], ["64", "박흥수", "방명록 9페이지"], ["65", "진광식", "방명록 9페이지"], ["66", "진병성", "방명록 9페이지"], ["67", "홍인의", "방명록 9페이지"], ["68", "홍광표, 진순남", "방명록 9페이지"], ["69", "이영성", "방명록 9페이지"], ["70", "임태숙", "방명록 9페이지"], ["71", "구문모", "방명록 9페이지"], ["72", "임재만", "방명록 9페이지"], ["73", "이선주", "방명록 9페이지"], ["74", "진병익", "방명록 9페이지"], ["75", "고제시", "방명록 10페이지"], ["76", "진병용", "방명록 10페이지"], ["77", "이재명", "방명록 10페이지"], ["78", "신우람", "방명록 10페이지"], ["79", "조현준", "방명록 10페이지"], ["80", "유인규", "방명록 10페이지"], ["81", "정청자", "방명록 10페이지/ 정정호"], ["82", "김희섭", "방명록 10페이지"], ["83", "송범준", "방명록 10페이지"], ["84", "이동신", "방명록 10페이지"], ["85", "박철우", "방명록 10페이지"], ["86", "박차덕", "방명록 10페이지/ ???"], ["87", "김윤섭", "방명록 11페이지"], ["88", "김영호", "방명록 1페이지/ ???"], ["89", "허중식", "방명록 3페이지"], ["90", "양상돈", "방명록 3페이지"], ["91", "심수연", "방명록 3페이지"], ["92", "석동호", "방명록 4페이지"], ["93", "윤정희", "방명록 4페이지/ 우4기"], ["94", "이종선", "방명록 4페이지"], ["95", "김덕권", "방명록 4페이지"], ["96", "곽건호", "방명록 4페이지"], ["97", "정관영", "방명록 5페이지"], ["98", "이벽희", "방명록 5페이지/ 복덩이총무"], ["99", "이기철", "방명록 5페이지"], ["100", "김공만", "방명록 5페이지"], ["101", "천무찬", "방명록 5페이지"], ["102", "박정민", "방명록 6페이지"], ["103", "박성수", "방명록 6페이지"], ["104", "박문수", "방명록 6페이지"], ["105", "문동현", "방명록 6페이지"], ["106", "안동주", "방명록 6페이지"], ["107", "이윤신", "방명록 6페이지"], ["108", "윤석구", "방명록 6페이지"], ["109", "안병국", "방명록 6페이지"], ["110", "이준영", "방명록 6페이지"], ["111", "나성호", "방명록 6페이지"], ["112", "김웅종", "방명록 6페이지"], ["113", "이동창", "방명록 6페이지"], ["114", "박인환", "방명록 7페이지"], ["115", "박상훈", "방명록 7페이지"], ["116", "최병윤", "방명록 7페이지"], ["117", "황혜숙", "방명록 7페이지"], ["118", "황순익", "방명록 7페이지"], ["119", "황정호", "방명록 7페이지"], ["120", "이영주", "방명록 7페이지"], ["121", "전왕규", "방명록 7페이지"], ["122", "이민규", "방명록 7페이지"], ["123", "이창근", "방명록 7페이지"], ["124", "경규호", "방명록 7페이지"], ["125", "김영회", "방명록 7페이지"], ["126", "홍충현", "방명록 8페이지"], ["127", "김래원", "방명록 8페이지"], ["128", "유종찬", "방명록 8페이지"], ["129", "진금기", "방명록 8페이지"], ["130", "신영숙", "방명록 8페이지"], ["131", "진은주", "방명록 8페이지"], ["132", "홍준기", "방명록 8페이지"], ["133", "진훈식", "방명록 8페이지"], ["134", "박정균", "방명록 8페이지"], ["135", "장양석", "방명록 8페이지 /천우베아링"], ["136", "김영준, 정역숙", "방명록 8페이지"], ["137", "장수정", "방명록 8페이지"], ["138", "진연실", "방명록 9페이지"], ["139", "윤영한", "방명록 9페이지"], ["140", "진홍기", "방명록 9페이지"], ["141", "진주원", "방명록 9페이지"], ["142", "김송제", "방명록 9페이지"], ["143", "이정훈", "방명록 9페이지"], ["144", "고제격", "방명록 10페이지"], ["145", "진동기", "방명록 10페이지"]]</script>
 
 </section>
 
@@ -344,10 +405,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   <p class="desc">화환은 금액이 없어 보낸 분/단체명만 정리했습니다.</p>
   
 <div class="table-wrap " data-table-id="tbl-wreath">
-  <table id="tbl-wreath" class="edit-table" data-amt-col="-1" data-unit="" data-xlsx-name="화환리스트" data-editable="true">
+  <table id="tbl-wreath" class="edit-table" data-amt-col="-1" data-unit="" data-xlsx-name="화환리스트" data-editable="true" data-computed-col="3">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>보낸 분 / 단체</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>보낸 분 / 단체</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -360,7 +421,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-wreath"></div>
 </div>
-<script type="application/json" id="data-tbl-wreath">[["1", "삼목회 일동", ""], ["2", "무한콘트롤", ""], ["3", "한일산업(주) 대표이사", ""], ["4", "삼성레미콘 대표이사", ""], ["5", "혁신레미콘판매(주)", ""], ["6", "월촌마을 주민일동", ""], ["7", "반곡다모회", ""], ["8", "하나은행 음성지점장", ""], ["9", "금석초등학교 14회", ""], ["10", "한맥테코산업", ""], ["11", "앤펠리스", ""], ["12", "충북레미콘공업협동조합 이사장", "※축의금 리스트 138번 최병윤과 동일인 추정"], ["13", "우석대학교 글로벌 최고경영과정 총동문회", ""], ["14", "서강레미콘 직원일동", "※신랑 재직회사"], ["15", "카스케미칼", ""], ["16", "흥진산업(주)", ""], ["17", "SK하이닉스 부사장", ""], ["18", "덕산지에스 대표", "※축의금 리스트 146번 박정민과 동일 회사"]]</script>
+<script type="application/json" id="data-tbl-wreath">[["1", "삼목회 일동", "", ""], ["2", "무한콘트롤", "", ""], ["3", "한일산업(주) 대표이사", "", ""], ["4", "삼성레미콘 대표이사", "", ""], ["5", "혁신레미콘판매(주)", "", ""], ["6", "월촌마을 주민일동", "", ""], ["7", "반곡다모회", "", ""], ["8", "하나은행 음성지점장", "", ""], ["9", "금석초등학교 14회", "", ""], ["10", "한맥테코산업", "", ""], ["11", "앤펠리스", "", ""], ["12", "충북레미콘공업협동조합 이사장", "※축의금 리스트 138번 최병윤과 동일인 추정", ""], ["13", "우석대학교 글로벌 최고경영과정 총동문회", "", ""], ["14", "서강레미콘 직원일동", "※신랑 재직회사", ""], ["15", "카스케미칼", "", ""], ["16", "흥진산업(주)", "", ""], ["17", "SK하이닉스 부사장", "", ""], ["18", "덕산지에스 대표", "※축의금 리스트 146번 박정민과 동일 회사", ""]]</script>
 
 </section>
 
@@ -373,10 +434,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <p class="desc">결혼식 전 회사로 개별 방문해서 현금으로 직접 전달한 축의금입니다. 아래 두 계좌(황경희·진병창)와 달리 통장 입금 내역이 아닙니다.</p>
     
 <div class="table-wrap " data-table-id="tbl-acct1">
-  <table id="tbl-acct1" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="식전방문_직접전달" data-editable="true">
+  <table id="tbl-acct1" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="식전방문_직접전달" data-editable="true" data-computed-col="6">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='6'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='6' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -389,7 +450,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-acct1"></div>
 </div>
-<script type="application/json" id="data-tbl-acct1">[["1", "2026-09-03", "한성특장", "", "200000", ""], ["2", "2026-09-10", "기사조흥주", "", "200000", ""], ["3", "2026-09-10", "김창기", "", "100000", ""], ["4", "2026-09-10", "영진티앤엠", "", "200000", ""], ["5", "2026-09-10", "임민호", "하나은행", "100000", "지점장"], ["6", "2026-09-10", "김태완", "하나은행", "100000", "차장"], ["7", "2026-09-10", "김호래", "서광티앤아이", "500000", ""], ["8", "2026-09-10", "김주성", "덕산지에스", "200000", ""], ["9", "2026-09-11", "김순애", "칠장리", "100000", ""], ["10", "2026-09-11", "서강레미콘", "", "1000000", ""], ["11", "2026-09-11", "박상수", "서강", "100000", ""], ["12", "2026-09-11", "김장래", "서강", "100000", ""], ["13", "2026-09-11", "박홍균", "서강", "100000", ""], ["14", "2026-09-11", "이주영", "서강", "200000", ""], ["15", "2026-09-11", "심성진", "서강", "100000", ""], ["16", "2026-09-11", "조용헌", "서강", "100000", ""], ["17", "2026-09-11", "김인섭", "서강", "200000", ""], ["18", "2026-09-11", "정인환", "서강", "100000", ""], ["19", "2026-09-11", "기사회", "서강", "300000", ""], ["20", "2026-09-11", "지용수", "서강", "100000", ""], ["21", "2026-09-11", "이재국", "", "300000", ""], ["22", "2026-09-11", "할머니", "", "200000", ""]]</script>
+<script type="application/json" id="data-tbl-acct1">[["1", "2026-09-03", "한성특장", "", "200000", "", ""], ["2", "2026-09-10", "기사조흥주", "", "200000", "", ""], ["3", "2026-09-10", "김창기", "", "100000", "", ""], ["4", "2026-09-10", "영진티앤엠", "", "200000", "", ""], ["5", "2026-09-10", "임민호", "하나은행", "100000", "지점장", ""], ["6", "2026-09-10", "김태완", "하나은행", "100000", "차장", ""], ["7", "2026-09-10", "김호래", "서광티앤아이", "500000", "", ""], ["8", "2026-09-10", "김주성", "덕산지에스", "200000", "", ""], ["9", "2026-09-11", "김순애", "칠장리", "100000", "", ""], ["10", "2026-09-11", "서강레미콘", "", "1000000", "", ""], ["11", "2026-09-11", "박상수", "서강", "100000", "", ""], ["12", "2026-09-11", "김장래", "서강", "100000", "", ""], ["13", "2026-09-11", "박홍균", "서강", "100000", "", ""], ["14", "2026-09-11", "이주영", "서강", "200000", "", ""], ["15", "2026-09-11", "심성진", "서강", "100000", "", ""], ["16", "2026-09-11", "조용헌", "서강", "100000", "", ""], ["17", "2026-09-11", "김인섭", "서강", "200000", "", ""], ["18", "2026-09-11", "정인환", "서강", "100000", "", ""], ["19", "2026-09-11", "기사회", "서강", "300000", "", ""], ["20", "2026-09-11", "지용수", "서강", "100000", "", ""], ["21", "2026-09-11", "이재국", "", "300000", "", ""], ["22", "2026-09-11", "정정자", "", "200000", "할머니", ""]]</script>
 
   </div>
 
@@ -397,10 +458,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <h3>계좌이체 축의금 (부모님 계좌 · 황경희)</h3>
     
 <div class="table-wrap " data-table-id="tbl-acct2">
-  <table id="tbl-acct2" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="부모님계좌2_황경희" data-editable="true">
+  <table id="tbl-acct2" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="부모님계좌2_황경희" data-editable="true" data-computed-col="6">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='6'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='6' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -413,7 +474,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-acct2"></div>
 </div>
-<script type="application/json" id="data-tbl-acct2">[["1", "2026-09-10", "최원기", "", "100000", ""], ["2", "2026-09-11", "제갈후동", "", "100000", ""], ["3", "2026-09-11", "김진호", "", "300000", ""], ["4", "2026-09-11", "혁신주유소", "", "100000", ""], ["5", "2026-09-11", "소선호", "", "100000", ""], ["6", "2026-09-12", "장은아", "", "300000", ""], ["7", "2026-09-12", "고경란", "", "200000", ""], ["8", "2026-09-12", "선세라", "", "200000", ""], ["9", "2026-09-12", "문혜성", "", "200000", ""], ["10", "2026-09-12", "칠공주", "", "300000", ""], ["11", "2026-09-13", "박영민", "", "100000", "9025"], ["12", "2026-09-13", "심지연", "", "100000", ""], ["13", "2026-09-13", "김수아", "", "200000", ""], ["14", "2026-09-13", "김형숙", "", "200000", ""], ["15", "2026-09-13", "임예지", "", "100000", ""], ["16", "2026-09-13", "이영주", "", "300000", ""], ["17", "2026-09-13", "황근호", "", "200000", ""], ["18", "2026-09-13", "김영수", "", "200000", "5905"], ["19", "2026-09-13", "백민자", "강도성", "100000", ""], ["20", "2026-09-13", "한국상사", "", "200000", ""], ["21", "2026-09-13", "박철순", "", "100000", "6363"], ["22", "2026-09-13", "이채영", "", "200000", "세무사"], ["23", "2026-09-13", "고미선", "", "100000", ""], ["24", "2026-09-13", "김지원", "", "100000", ""]]</script>
+<script type="application/json" id="data-tbl-acct2">[["1", "2026-09-10", "최원기", "", "100000", "", ""], ["2", "2026-09-11", "제갈후동", "", "100000", "", ""], ["3", "2026-09-11", "김진호", "", "300000", "", ""], ["4", "2026-09-11", "혁신주유소", "", "100000", "", ""], ["5", "2026-09-11", "소선호", "", "100000", "", ""], ["6", "2026-09-12", "장은아", "", "300000", "", ""], ["7", "2026-09-12", "고경란", "", "200000", "", ""], ["8", "2026-09-12", "선세라", "", "200000", "", ""], ["9", "2026-09-12", "문혜성", "", "200000", "", ""], ["10", "2026-09-12", "칠공주", "", "300000", "", ""], ["11", "2026-09-13", "박영민", "", "100000", "9025", ""], ["12", "2026-09-13", "심지연", "", "100000", "", ""], ["13", "2026-09-13", "김수아", "", "200000", "", ""], ["14", "2026-09-13", "김형숙", "", "200000", "", ""], ["15", "2026-09-13", "임예지", "", "100000", "", ""], ["16", "2026-09-13", "이영주", "", "300000", "", ""], ["17", "2026-09-13", "황근호", "", "200000", "", ""], ["18", "2026-09-13", "김영수", "", "200000", "5905", ""], ["19", "2026-09-13", "백민자", "강도성", "100000", "", ""], ["20", "2026-09-13", "한국상사", "", "200000", "", ""], ["21", "2026-09-13", "박철순", "", "100000", "6363", ""], ["22", "2026-09-13", "이채영", "", "200000", "세무사", ""], ["23", "2026-09-13", "고미선", "", "100000", "", ""], ["24", "2026-09-13", "김지원", "", "100000", "", ""]]</script>
 
   </div>
 
@@ -421,10 +482,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <h3>계좌이체 축의금 (부모님 계좌 · 진병창/농협)</h3>
     
 <div class="table-wrap " data-table-id="tbl-acct3">
-  <table id="tbl-acct3" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="부모님계좌3_진병창_농협" data-editable="true">
+  <table id="tbl-acct3" class="edit-table" data-amt-col="4" data-unit="원" data-xlsx-name="부모님계좌3_진병창_농협" data-editable="true" data-computed-col="6">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>소속</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>금액(원)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='5'><span class='th-label'>비고</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='6'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='5' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='6' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -437,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-acct3"></div>
 </div>
-<script type="application/json" id="data-tbl-acct3">[["1", "2026-08-19", "진승호", "", "50000", ""], ["2", "2026-08-31", "송대현", "", "200000", ""], ["3", "2026-09-02", "조규호", "", "100000", ""], ["4", "2026-09-06", "부산형", "", "1000000", ""], ["5", "2026-09-06", "진병남", "", "100000", ""], ["6", "2026-09-07", "오선경", "", "100000", ""], ["7", "2026-09-07", "반곡다모회", "", "500000", ""], ["8", "2026-09-07", "진병인", "", "100000", ""], ["9", "2026-09-08", "이용순", "", "50000", ""], ["10", "2026-09-08", "채수암", "", "200000", ""], ["11", "2026-09-08", "유옥열", "우석대", "100000", ""], ["12", "2026-09-09", "장시응", "성안레미콘", "300000", ""], ["13", "2026-09-10", "조인제", "", "100000", "축 결혼"], ["14", "2026-09-10", "김동근", "삼성레미콘", "100000", ""], ["15", "2026-09-10", "정환준", "", "100000", "축 결혼"], ["16", "2026-09-10", "공단레미콘아스", "", "100000", ""], ["17", "2026-09-10", "동진레미콘", "", "100000", ""], ["18", "2026-09-10", "신권일", "kcl", "100000", ""], ["19", "2026-09-10", "대덕레미콘", "", "200000", ""], ["20", "2026-09-10", "최원규", "", "100000", ""], ["21", "2026-09-10", "오종근", "금성건설기계", "200000", ""], ["22", "2026-09-10", "안영복", "", "100000", ""], ["23", "2026-09-10", "진원기", "", "100000", "축 결혼"], ["24", "2026-09-10", "김석중", "", "200000", "축 의골프"], ["25", "2026-09-10", "남해학", "", "100000", ""], ["26", "2026-09-11", "풍남레미콘", "", "100000", ""], ["27", "2026-09-11", "창조레미콘", "", "100000", ""], ["28", "2026-09-11", "이효찬", "", "200000", ""], ["29", "2026-09-11", "정의주", "", "500000", ""], ["30", "2026-09-11", "삼덕레미콘", "", "100000", ""], ["31", "2026-09-11", "태양건설", "", "200000", ""], ["32", "2026-09-11", "서길환", "", "200000", "세무사"], ["33", "2026-09-11", "고근배", "제니스", "100000", ""], ["34", "2026-09-11", "박희준", "신한계기산업", "100000", ""], ["35", "2026-09-11", "신현장", "금성개발", "200000", ""], ["36", "2026-09-11", "권광택", "", "100000", ""], ["37", "2026-09-11", "진승기", "", "100000", ""], ["38", "2026-09-11", "진성진", "", "100000", ""], ["39", "2026-09-11", "한국레미콘", "", "100000", ""], ["40", "2026-09-11", "충주레미콘", "", "100000", ""], ["41", "2026-09-11", "장찬수", "", "100000", ""], ["42", "2026-09-11", "창조종합건설(주)", "", "100000", ""], ["43", "2026-09-11", "이무종", "", "100000", ""], ["44", "2026-09-11", "정삼목", "우리도시산업", "200000", ""], ["45", "2026-09-11", "대원레미콘", "", "100000", ""], ["46", "2026-09-11", "대영레미콘", "", "200000", ""], ["47", "2026-09-11", "김건우", "카스케미칼", "500000", ""], ["48", "2026-09-11", "흥진산업", "", "200000", ""], ["49", "2026-09-11", "강병진", "", "300000", ""], ["50", "2026-09-11", "세종코퍼레이션", "", "100000", ""], ["51", "2026-09-11", "최병윤", "석진레미콘", "300000", ""], ["52", "2026-09-11", "신남근", "", "200000", ""], ["53", "2026-09-11", "김홍수", "흥진산업", "100000", ""], ["54", "2026-09-11", "김영옥", "청주금성", "200000", ""], ["55", "2026-09-11", "윤지용", "충북조합", "100000", ""], ["56", "2026-09-11", "서강레미콘", "", "1000000", ""], ["57", "2026-09-11", "이재경", "대광레미콘", "100000", ""], ["58", "2026-09-11", "충주중앙레미콘", "", "100000", ""], ["59", "2026-09-11", "유승구", "성안", "100000", ""], ["60", "2026-09-11", "서일기업", "", "100000", ""], ["61", "2026-09-11", "대한레미콘", "", "100000", ""], ["62", "2026-09-11", "죄재화", "보강레미콘", "200000", ""], ["63", "2026-09-11", "기철", "부성케이엔이", "500000", ""], ["64", "2026-09-11", "석동호", "", "200000", ""], ["65", "2026-09-11", "진병환", "", "200000", ""], ["66", "2026-09-11", "최혜란", "진천화랑", "100000", ""], ["67", "2026-09-11", "박용준", "", "100000", ""], ["68", "2026-09-11", "이은종", "", "100000", "축 결혼"], ["69", "2026-09-11", "황석용", "", "200000", "축하드려요"], ["70", "2026-09-12", "김성환", "", "300000", ""], ["71", "2026-09-12", "최용기", "금성레미콘", "100000", ""], ["72", "2026-09-12", "채정훈", "", "100000", "축 결혼"], ["73", "2026-09-12", "진상식", "", "100000", ""], ["74", "2026-09-12", "곽천웅", "", "100000", ""], ["75", "2026-09-12", "진용식", "", "100000", ""], ["76", "2026-09-12", "진현식", "", "100000", ""], ["77", "2026-09-12", "노성래", "", "50000", "004"], ["78", "2026-09-12", "한대원", "", "100000", ""], ["79", "2026-09-12", "정덕희", "", "200000", ""], ["80", "2026-09-12", "심용석", "한일시멘트", "200000", ""], ["81", "2026-09-12", "아람종합건설", "", "100000", ""], ["82", "2026-09-12", "정경미", "", "200000", ""], ["83", "2026-09-12", "문상진", "", "200000", ""], ["84", "2026-09-12", "임철수", "대광레미콘", "200000", ""], ["85", "2026-09-12", "변종철", "", "200000", ""], ["86", "2026-09-12", "최창석", "", "100000", ""], ["87", "2026-09-12", "진금식", "", "100000", "결혼축하"], ["88", "2026-09-12", "진준식", "", "100000", "축 결혼"], ["89", "2026-09-12", "이종행", "", "50000", ""], ["90", "2026-09-12", "진병석", "", "100000", ""], ["91", "2026-09-12", "진병용", "", "300000", "축 결혼"], ["92", "2026-09-13", "이승규", "", "300000", ""], ["93", "2026-09-13", "진병선", "", "100000", ""], ["94", "2026-09-13", "이경미", "", "100000", ""], ["95", "2026-09-13", "김공만", "", "300000", "축의금"], ["96", "2026-09-13", "박영호", "지엠코리아", "200000", ""], ["97", "2026-09-13", "진병규", "", "100000", ""], ["98", "2026-09-13", "이정희", "단건축", "100000", ""], ["99", "2026-09-13", "이홍래", "", "100000", ""], ["100", "2026-09-13", "고학윤", "", "100000", ""], ["101", "2026-09-13", "무한콘트롤", "", "200000", ""], ["102", "2026-09-13", "강용남", "", "100000", ""], ["103", "2026-09-13", "윤상진", "", "100000", ""], ["104", "2026-09-13", "이영복", "석교리", "50000", ""], ["105", "2026-09-13", "진영칠", "", "100000", ""], ["106", "2026-09-13", "윤정호", "", "100000", ""], ["107", "2026-09-13", "김원동", "스카이광고", "100000", ""], ["108", "2026-09-13", "홍성현", "", "100000", "축 결혼"], ["109", "2026-09-13", "최재덕", "우4기", "100000", ""], ["110", "2026-09-13", "김운환", "", "100000", ""], ["111", "2026-09-13", "이진선", "", "100000", ""], ["112", "2026-09-13", "김정애", "", "50000", ""], ["113", "2026-09-13", "이충민", "", "200000", ""], ["114", "2026-09-13", "김승의", "부자중기", "300000", ""], ["115", "2026-09-13", "김대운", "", "100000", ""], ["116", "2026-09-13", "서정우", "", "100000", ""], ["117", "2026-09-13", "진담식", "", "50000", ""], ["118", "2026-09-13", "류재열", "금성", "100000", "상무"], ["119", "2026-09-13", "최재호", "유진기업", "200000", "사장"], ["120", "2026-09-13", "노재철", "", "100000", ""], ["121", "2026-09-13", "김송제", "", "200000", ""], ["122", "2026-09-13", "김경자", "", "100000", ""], ["123", "2026-09-13", "이영학", "", "100000", "축 혼인잔치"], ["124", "2026-09-13", "이길순", "", "50000", ""], ["125", "2026-09-13", "백남경", "", "50000", ""], ["126", "2026-09-13", "김동식", "", "50000", ""], ["127", "2026-09-13", "권혁진", "", "100000", ""], ["128", "2026-09-13", "진용기·동기·연실", "", "1000000", ""], ["129", "2026-09-13", "이완재", "", "100000", ""], ["130", "2026-09-13", "송현욱", "", "100000", ""], ["131", "2026-09-13", "강문석", "", "100000", ""], ["132", "2026-09-13", "진병곤", "", "100000", ""], ["133", "2026-09-13", "토우측량설계공사", "", "200000", ""], ["134", "2026-09-13", "성한경", "", "100000", ""], ["135", "2026-09-13", "최규완", "", "200000", ""], ["136", "2026-09-13", "박봉희", "", "50000", ""], ["137", "2026-09-13", "진병대", "", "100000", "축의금"], ["138", "2026-09-13", "조기문", "우4기", "100000", ""], ["139", "2026-09-13", "심상경", "", "100000", ""], ["140", "2026-09-13", "진영은", "", "100000", ""], ["141", "2026-09-13", "진영군", "", "100000", ""], ["142", "2026-09-13", "정해수", "", "100000", "축하드립니다"], ["143", "2026-09-13", "채경만", "", "100000", ""], ["144", "2026-09-13", "진인기", "", "100000", ""], ["145", "2026-09-13", "전웅갑", "", "100000", ""], ["146", "2026-09-13", "정운택", "", "100000", ""], ["147", "2026-09-13", "임지섭", "", "100000", ""], ["148", "2026-09-13", "정승준", "", "300000", ""], ["149", "2026-09-14", "윤성훈", "", "100000", ""], ["150", "2026-09-14", "진영광", "", "100000", ""], ["151", "2026-09-14", "박경준", "단성", "200000", "축의"], ["152", "2026-09-14", "임병조", "", "100000", ""]]</script>
+<script type="application/json" id="data-tbl-acct3">[["1", "2026-08-19", "진승호", "", "50000", "", ""], ["2", "2026-08-31", "송대현", "", "200000", "", ""], ["3", "2026-09-02", "조규호", "", "100000", "", ""], ["4", "2026-09-06", "부산형", "", "1000000", "", ""], ["5", "2026-09-06", "진병남", "", "100000", "", ""], ["6", "2026-09-07", "오선경", "", "100000", "", ""], ["7", "2026-09-07", "반곡다모회", "", "500000", "", ""], ["8", "2026-09-07", "진병인", "", "100000", "", ""], ["9", "2026-09-08", "이용순", "", "50000", "", ""], ["10", "2026-09-08", "채수암", "", "200000", "", ""], ["11", "2026-09-08", "유옥열", "우석대", "100000", "", ""], ["12", "2026-09-09", "장시응", "성안레미콘", "300000", "", ""], ["13", "2026-09-10", "조인제", "", "100000", "축 결혼", ""], ["14", "2026-09-10", "김동근", "삼성레미콘", "100000", "", ""], ["15", "2026-09-10", "정환준", "", "100000", "축 결혼", ""], ["16", "2026-09-10", "공단레미콘아스", "", "100000", "", ""], ["17", "2026-09-10", "동진레미콘", "", "100000", "", ""], ["18", "2026-09-10", "신권일", "kcl", "100000", "", ""], ["19", "2026-09-10", "대덕레미콘", "", "200000", "", ""], ["20", "2026-09-10", "최원규", "", "100000", "", ""], ["21", "2026-09-10", "오종근", "금성건설기계", "200000", "", ""], ["22", "2026-09-10", "안영복", "", "100000", "", ""], ["23", "2026-09-10", "진원기", "", "100000", "축 결혼", ""], ["24", "2026-09-10", "김석중", "", "200000", "축 의골프", ""], ["25", "2026-09-10", "남해학", "", "100000", "", ""], ["26", "2026-09-11", "풍남레미콘", "", "100000", "", ""], ["27", "2026-09-11", "창조레미콘", "", "100000", "", ""], ["28", "2026-09-11", "이효찬", "", "200000", "", ""], ["29", "2026-09-11", "정의주", "", "500000", "", ""], ["30", "2026-09-11", "삼덕레미콘", "", "100000", "", ""], ["31", "2026-09-11", "태양건설", "", "200000", "", ""], ["32", "2026-09-11", "서길환", "", "200000", "세무사", ""], ["33", "2026-09-11", "고근배", "제니스", "100000", "", ""], ["34", "2026-09-11", "박희준", "신한계기산업", "100000", "", ""], ["35", "2026-09-11", "신현장", "금성개발", "200000", "", ""], ["36", "2026-09-11", "권광택", "", "100000", "", ""], ["37", "2026-09-11", "진승기", "", "100000", "", ""], ["38", "2026-09-11", "진성진", "", "100000", "", ""], ["39", "2026-09-11", "한국레미콘", "", "100000", "", ""], ["40", "2026-09-11", "충주레미콘", "", "100000", "", ""], ["41", "2026-09-11", "장찬수", "", "100000", "", ""], ["42", "2026-09-11", "창조종합건설(주)", "", "100000", "", ""], ["43", "2026-09-11", "이무종", "", "100000", "", ""], ["44", "2026-09-11", "정삼목", "우리도시산업", "200000", "", ""], ["45", "2026-09-11", "대원레미콘", "", "100000", "", ""], ["46", "2026-09-11", "대영레미콘", "", "200000", "", ""], ["47", "2026-09-11", "김건우", "카스케미칼", "500000", "", ""], ["48", "2026-09-11", "흥진산업", "", "200000", "", ""], ["49", "2026-09-11", "강병진", "", "300000", "", ""], ["50", "2026-09-11", "세종코퍼레이션", "", "100000", "", ""], ["51", "2026-09-11", "최병윤", "석진레미콘", "300000", "", ""], ["52", "2026-09-11", "신남근", "", "200000", "", ""], ["53", "2026-09-11", "김홍수", "흥진산업", "100000", "", ""], ["54", "2026-09-11", "김영옥", "청주금성", "200000", "", ""], ["55", "2026-09-11", "윤지용", "충북조합", "100000", "", ""], ["56", "2026-09-11", "서강레미콘", "", "1000000", "", ""], ["57", "2026-09-11", "이재경", "대광레미콘", "100000", "", ""], ["58", "2026-09-11", "충주중앙레미콘", "", "100000", "", ""], ["59", "2026-09-11", "유승구", "성안", "100000", "", ""], ["60", "2026-09-11", "서일기업", "", "100000", "", ""], ["61", "2026-09-11", "대한레미콘", "", "100000", "", ""], ["62", "2026-09-11", "죄재화", "보강레미콘", "200000", "", ""], ["63", "2026-09-11", "기철", "부성케이엔이", "500000", "", ""], ["64", "2026-09-11", "석동호", "", "200000", "", ""], ["65", "2026-09-11", "진병환", "", "200000", "", ""], ["66", "2026-09-11", "최혜란", "진천화랑", "100000", "", ""], ["67", "2026-09-11", "박용준", "", "100000", "", ""], ["68", "2026-09-11", "이은종", "", "100000", "축 결혼", ""], ["69", "2026-09-11", "황석용", "", "200000", "축하드려요", ""], ["70", "2026-09-12", "김성환", "", "300000", "", ""], ["71", "2026-09-12", "최용기", "금성레미콘", "100000", "", ""], ["72", "2026-09-12", "채정훈", "", "100000", "축 결혼", ""], ["73", "2026-09-12", "진상식", "", "100000", "", ""], ["74", "2026-09-12", "곽천웅", "", "100000", "", ""], ["75", "2026-09-12", "진용식", "", "100000", "", ""], ["76", "2026-09-12", "진현식", "", "100000", "", ""], ["77", "2026-09-12", "노성래", "", "50000", "004", ""], ["78", "2026-09-12", "한대원", "", "100000", "", ""], ["79", "2026-09-12", "정덕희", "", "200000", "", ""], ["80", "2026-09-12", "심용석", "한일시멘트", "200000", "", ""], ["81", "2026-09-12", "아람종합건설", "", "100000", "", ""], ["82", "2026-09-12", "정경미", "", "200000", "", ""], ["83", "2026-09-12", "문상진", "", "200000", "", ""], ["84", "2026-09-12", "임철수", "대광레미콘", "200000", "", ""], ["85", "2026-09-12", "변종철", "", "200000", "", ""], ["86", "2026-09-12", "최창석", "", "100000", "", ""], ["87", "2026-09-12", "진금식", "", "100000", "결혼축하", ""], ["88", "2026-09-12", "진준식", "", "100000", "축 결혼", ""], ["89", "2026-09-12", "이종행", "", "50000", "", ""], ["90", "2026-09-12", "진병석", "", "100000", "", ""], ["91", "2026-09-12", "진병용", "", "300000", "축 결혼", ""], ["92", "2026-09-13", "이승규", "", "300000", "", ""], ["93", "2026-09-13", "진병선", "", "100000", "", ""], ["94", "2026-09-13", "이경미", "", "100000", "", ""], ["95", "2026-09-13", "김공만", "", "300000", "축의금", ""], ["96", "2026-09-13", "박영호", "지엠코리아", "200000", "", ""], ["97", "2026-09-13", "진병규", "", "100000", "", ""], ["98", "2026-09-13", "이정희", "단건축", "100000", "", ""], ["99", "2026-09-13", "이홍래", "", "100000", "", ""], ["100", "2026-09-13", "고학윤", "", "100000", "", ""], ["101", "2026-09-13", "무한콘트롤", "", "200000", "", ""], ["102", "2026-09-13", "강용남", "", "100000", "", ""], ["103", "2026-09-13", "윤상진", "", "100000", "", ""], ["104", "2026-09-13", "이영복", "석교리", "50000", "", ""], ["105", "2026-09-13", "진영칠", "", "100000", "", ""], ["106", "2026-09-13", "윤정호", "", "100000", "", ""], ["107", "2026-09-13", "김원동", "스카이광고", "100000", "", ""], ["108", "2026-09-13", "홍성현", "", "100000", "축 결혼", ""], ["109", "2026-09-13", "최재덕", "우4기", "100000", "", ""], ["110", "2026-09-13", "김운환", "", "100000", "", ""], ["111", "2026-09-13", "이진선", "", "100000", "", ""], ["112", "2026-09-13", "김정애", "", "50000", "", ""], ["113", "2026-09-13", "이충민", "", "200000", "", ""], ["114", "2026-09-13", "김승의", "부자중기", "300000", "", ""], ["115", "2026-09-13", "김대운", "", "100000", "", ""], ["116", "2026-09-13", "서정우", "", "100000", "", ""], ["117", "2026-09-13", "진담식", "", "50000", "", ""], ["118", "2026-09-13", "류재열", "금성", "100000", "상무", ""], ["119", "2026-09-13", "최재호", "유진기업", "200000", "사장", ""], ["120", "2026-09-13", "노재철", "", "100000", "", ""], ["121", "2026-09-13", "김송제", "", "200000", "", ""], ["122", "2026-09-13", "김경자", "", "100000", "", ""], ["123", "2026-09-13", "이영학", "", "100000", "축 혼인잔치", ""], ["124", "2026-09-13", "이길순", "", "50000", "", ""], ["125", "2026-09-13", "백남경", "", "50000", "", ""], ["126", "2026-09-13", "김동식", "", "50000", "", ""], ["127", "2026-09-13", "권혁진", "", "100000", "", ""], ["128", "2026-09-13", "진용기·동기·연실", "", "1000000", "", ""], ["129", "2026-09-13", "이완재", "", "100000", "", ""], ["130", "2026-09-13", "송현욱", "", "100000", "", ""], ["131", "2026-09-13", "강문석", "", "100000", "", ""], ["132", "2026-09-13", "진병곤", "", "100000", "", ""], ["133", "2026-09-13", "토우측량설계공사", "", "200000", "", ""], ["134", "2026-09-13", "성한경", "", "100000", "", ""], ["135", "2026-09-13", "최규완", "", "200000", "", ""], ["136", "2026-09-13", "박봉희", "", "50000", "", ""], ["137", "2026-09-13", "진병대", "", "100000", "축의금", ""], ["138", "2026-09-13", "조기문", "우4기", "100000", "", ""], ["139", "2026-09-13", "심상경", "", "100000", "", ""], ["140", "2026-09-13", "진영은", "", "100000", "", ""], ["141", "2026-09-13", "진영군", "", "100000", "", ""], ["142", "2026-09-13", "정해수", "", "100000", "축하드립니다", ""], ["143", "2026-09-13", "채경만", "", "100000", "", ""], ["144", "2026-09-13", "진인기", "", "100000", "", ""], ["145", "2026-09-13", "전웅갑", "", "100000", "", ""], ["146", "2026-09-13", "정운택", "", "100000", "", ""], ["147", "2026-09-13", "임지섭", "", "100000", "", ""], ["148", "2026-09-13", "정승준", "", "300000", "", ""], ["149", "2026-09-14", "윤성훈", "", "100000", "", ""], ["150", "2026-09-14", "진영광", "", "100000", "", ""], ["151", "2026-09-14", "박경준", "단성", "200000", "축의", ""], ["152", "2026-09-14", "임병조", "", "100000", "", ""]]</script>
 
   </div>
 
@@ -445,10 +506,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <h3>축의금 외 선물 (화분 · 꽃바구니 등)</h3>
     
 <div class="table-wrap " data-table-id="tbl-gift">
-  <table id="tbl-gift" class="edit-table" data-amt-col="-1" data-unit="" data-xlsx-name="축의금외선물" data-editable="true">
+  <table id="tbl-gift" class="edit-table" data-amt-col="-1" data-unit="" data-xlsx-name="축의금외선물" data-editable="true" data-computed-col="4">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>보낸 분</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>내용</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>일자</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>보낸 분</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>내용</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='4'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='4' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -461,7 +522,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-gift"></div>
 </div>
-<script type="application/json" id="data-tbl-gift">[["1", "2026-09-08", "금왕산업개발", "알로카시아 화분"], ["2", "2026-09-10", "김석중", "와인각인"], ["3", "", "김주성", "꽃바구니"], ["4", "", "서강레미콘", "난"]]</script>
+<script type="application/json" id="data-tbl-gift">[["1", "2026-09-08", "금왕산업개발", "알로카시아 화분", ""], ["2", "2026-09-10", "김석중", "와인각인", ""], ["3", "", "김주성", "꽃바구니", ""], ["4", "", "서강레미콘", "난", ""]]</script>
 
   </div>
 </section>
@@ -471,10 +532,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   <p class="desc">식사 인원 파악용 참고 자료입니다.</p>
   
 <div class="table-wrap " data-table-id="tbl-meal">
-  <table id="tbl-meal" class="edit-table" data-amt-col="2" data-unit="매" data-xlsx-name="식권배부명단" data-editable="true">
+  <table id="tbl-meal" class="edit-table" data-amt-col="2" data-unit="매" data-xlsx-name="식권배부명단" data-editable="true" data-computed-col="3">
     <thead>
-      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>개수(매)</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
-      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'></th></tr>
+      <tr><th class='sortable' data-col-index='0'><span class='th-label'>번호</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='1'><span class='th-label'>성명</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='2'><span class='th-label'>개수(매)</span><span class='sort-ind'></span></th><th class='sortable' data-col-index='3'><span class='th-label'>방명록</span><span class='sort-ind'></span></th><th class='actcol'>관리</th></tr>
+      <tr class="filter-row"><th class='filter-cell'><input type='text' class='filter-input' data-col-index='0' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='1' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='2' placeholder='필터'></th><th class='filter-cell'><input type='text' class='filter-input' data-col-index='3' placeholder='필터'></th><th class='filter-cell'></th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -487,7 +548,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
   <div class="filter-info" id="filterinfo-tbl-meal"></div>
 </div>
-<script type="application/json" id="data-tbl-meal">[["1", "김아란", "4"], ["2", "김선희", "3"], ["3", "김영복", "3"], ["4", "황은호", "5"], ["5", "허종식", "1"], ["6", "박노재", "1"], ["7", "양상돈", "2"], ["8", "임만택", "1"], ["9", "선우은주", "1"], ["10", "김형철", "1"], ["11", "이병현", "1"], ["12", "함수변", "1"], ["13", "정우혁", "1"], ["14", "김정구", "1"], ["15", "장세진", "1"], ["16", "이창우", "1"], ["17", "이종선", "1"], ["18", "김억권", "1"], ["19", "박린호", "1"], ["20", "박이천", "1"], ["21", "윤기환", "1"], ["22", "윤춘욱", "1"], ["23", "김명숙", "1"], ["24", "채만병", "1"], ["25", "송성종", "1"], ["26", "김연건", "1"], ["27", "이정주", "1"], ["28", "백정순", "1"], ["29", "성기광", "1"], ["30", "정욱준", "1"], ["31", "정관영", "1"], ["32", "이벽희", "1"], ["33", "진유식", "1"], ["34", "박순복", "1"], ["35", "박희근", "1"], ["36", "이승호", "1"], ["37", "이상윤", "1"], ["38", "송주현", "1"], ["39", "이요한", "1"], ["40", "홍민혁", "1"], ["41", "여기철", "1"], ["42", "김공만", "1"], ["43", "천무찬", "1"], ["44", "이용래", "2"], ["45", "박종훈", "1"], ["46", "황종호", "1"], ["47", "박정연", "1"], ["48", "박성수", "1"], ["49", "박문수", "1"], ["50", "문동현", "1"], ["51", "안동주", "1"], ["52", "이윤신", "1"], ["53", "윤석구", "1"], ["54", "안병극", "1"], ["55", "이군영", "1"], ["56", "나성호", "1"], ["57", "김웅종", "1"], ["58", "이동창", "1"], ["59", "박인환", "1"], ["60", "박상훈", "1"], ["61", "최병윤", "1"], ["62", "박병용", "1"], ["63", "황철호", "5"], ["64", "양해봉", "1"], ["65", "고제경", "1"], ["66", "김경섭", "1"], ["67", "이영수", "1"], ["68", "진광식", "1"], ["69", "이인규", "1"], ["70", "이찬근", "1"], ["71", "임지상", "1"], ["72", "정규호", "1"], ["73", "김영희", "1"], ["74", "정문섭", "1"], ["75", "홍충현", "1"], ["76", "김태현", "1"], ["77", "유종찬", "1"], ["78", "진광식2", "1"], ["79", "신영숙", "1"], ["80", "정민주", "1"], ["81", "진은선", "1"], ["82", "김영수", "1"], ["83", "홍순기", "1"], ["84", "진훈식", "1"], ["85", "김명국", "1"], ["86", "황경아", "1"], ["87", "김하은", "1"], ["88", "박정훈", "1"], ["89", "서남택", "1"], ["90", "장양석", "1"], ["91", "김영효", "1"], ["92", "장수정", "1"], ["93", "이유림", "1"], ["94", "임성진", "1"], ["95", "진연설", "1"], ["96", "윤영한", "1"], ["97", "박흥수", "1"], ["98", "진홍기", "1"], ["99", "김주원", "1"], ["100", "진광식3", "1"], ["101", "진병익", "1"], ["102", "진병성", "1"], ["103", "김흥제", "1"], ["104", "진순남", "1"], ["105", "홍광표", "1"], ["106", "홍인의", "1"], ["107", "이정훈", "1"], ["108", "이영성", "1"], ["109", "임재만", "1"], ["110", "구문모", "1"], ["111", "임태숙", "1"], ["112", "이선주", "1"], ["113", "고제시", "1"], ["114", "진병용", "1"], ["115", "이재명", "1"], ["116", "신우람", "1"], ["117", "조현준", "1"], ["118", "유인규", "1"], ["119", "정정호", "1"], ["120", "김희섭", "1"], ["121", "고제격", "1"], ["122", "송범준", "1"], ["123", "서남택2", "1"], ["124", "박철우", "1"], ["125", "진동기", "1"], ["126", "이동창2", "1"], ["127", "이승훈", "1"], ["128", "김윤섭", "1"]]</script>
+<script type="application/json" id="data-tbl-meal">[["1", "김아란", "4", ""], ["2", "김선희", "3", ""], ["3", "김영복", "3", ""], ["4", "황은호", "5", ""], ["5", "허중식", "1", ""], ["6", "박노재", "1", ""], ["7", "양상돈", "2", ""], ["8", "임만택", "1", ""], ["9", "선우, 은주", "1", ""], ["10", "김형철", "1", ""], ["11", "이병현", "1", ""], ["12", "심수연", "1", ""], ["13", "정우혁", "1", ""], ["14", "김정구", "1", ""], ["15", "장세진", "1", ""], ["16", "이창우", "1", ""], ["17", "이종선", "1", ""], ["18", "김억권", "1", ""], ["19", "박린호", "1", ""], ["20", "박이천", "1", ""], ["21", "윤기환", "1", ""], ["22", "윤춘욱", "1", ""], ["23", "김명숙", "1", ""], ["24", "채만병", "1", ""], ["25", "송성종", "1", ""], ["26", "김연건", "1", ""], ["27", "이정주", "1", ""], ["28", "백정순", "1", ""], ["29", "성기광", "1", ""], ["30", "정욱준", "1", ""], ["31", "정관영", "1", ""], ["32", "이벽희", "1", ""], ["33", "진유식", "1", ""], ["34", "박순복", "1", ""], ["35", "박희근", "1", ""], ["36", "이승호", "1", ""], ["37", "이상윤", "1", ""], ["38", "송주현", "1", ""], ["39", "이요한", "1", ""], ["40", "홍민혁", "1", ""], ["41", "여기철", "1", ""], ["42", "김공만", "1", ""], ["43", "천무찬", "1", ""], ["44", "이용래", "2", ""], ["45", "박종훈", "1", ""], ["46", "황종호", "1", ""], ["47", "박정연", "1", ""], ["48", "박성수", "1", ""], ["49", "박문수", "1", ""], ["50", "문동현", "1", ""], ["51", "안동주", "1", ""], ["52", "이윤신", "1", ""], ["53", "윤석구", "1", ""], ["54", "안병극", "1", ""], ["55", "이군영", "1", ""], ["56", "나성호", "1", ""], ["57", "김웅종", "1", ""], ["58", "이동창", "1", ""], ["59", "박인환", "1", ""], ["60", "박상훈", "1", ""], ["61", "최병윤", "1", ""], ["62", "박병용", "1", ""], ["63", "황철호", "5", ""], ["64", "양해봉", "1", ""], ["65", "고제경", "1", ""], ["66", "김경섭", "1", ""], ["67", "이영수", "1", ""], ["68", "진광식", "1", ""], ["69", "이인규", "1", ""], ["70", "이찬근", "1", ""], ["71", "임지상", "1", ""], ["72", "정규호", "1", ""], ["73", "김영희", "1", ""], ["74", "정문섭", "1", ""], ["75", "홍충현", "1", ""], ["76", "김태현", "1", ""], ["77", "유종찬", "1", ""], ["78", "진광식2", "1", ""], ["79", "신영숙", "1", ""], ["80", "정민주", "1", ""], ["81", "진은선", "1", ""], ["82", "김영수", "1", ""], ["83", "홍순기", "1", ""], ["84", "진훈식", "1", ""], ["85", "김명국", "1", ""], ["86", "황경아", "1", ""], ["87", "김하은", "1", ""], ["88", "박정훈", "1", ""], ["89", "서남택", "1", ""], ["90", "장양석", "1", ""], ["91", "김영호", "1", ""], ["92", "장수정", "1", ""], ["93", "이유림", "1", ""], ["94", "임성진", "1", ""], ["95", "진연설", "1", ""], ["96", "윤영한", "1", ""], ["97", "박흥수", "1", ""], ["98", "진홍기", "1", ""], ["99", "김주원", "1", ""], ["100", "진광식3", "1", ""], ["101", "진병익", "1", ""], ["102", "진병성", "1", ""], ["103", "김흥제", "1", ""], ["104", "진순남", "1", ""], ["105", "홍광표", "1", ""], ["106", "홍인의", "1", ""], ["107", "이정훈", "1", ""], ["108", "이영성", "1", ""], ["109", "임재만", "1", ""], ["110", "구문모", "1", ""], ["111", "임태숙", "1", ""], ["112", "이선주", "1", ""], ["113", "고제시", "1", ""], ["114", "진병용", "1", ""], ["115", "이재명", "1", ""], ["116", "신우람", "1", ""], ["117", "조현준", "1", ""], ["118", "유인규", "1", ""], ["119", "정정호", "1", ""], ["120", "김희섭", "1", ""], ["121", "고제격", "1", ""], ["122", "송범준", "1", ""], ["123", "서남택2", "1", ""], ["124", "박철우", "1", ""], ["125", "진동기", "1", ""], ["126", "이동창2", "1", ""], ["127", "이승훈", "1", ""], ["128", "김윤섭", "1", ""]]</script>
 
 </section>
 
@@ -514,7 +575,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     "tbl-acct3": "부모님 계좌(진병창)"
   };
   const TOP_THRESHOLD = HI2; // 500,000원 이상
-  const GUESTBOOK_LINKED_TABLES = ["tbl-venue", "tbl-guestbook"];
+  const GUESTBOOK_LINKED_TABLES = ["tbl-bank","tbl-venue","tbl-acct1","tbl-acct2","tbl-acct3","tbl-wreath","tbl-gift","tbl-meal","tbl-guestbook"];
 
   function parseAmt(text) {
     if (text == null) return 0;
@@ -704,7 +765,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         const org = cells[orgIdx] ? cells[orgIdx].textContent.trim() : "";
         const amt = cells[amtCol] ? parseAmt(cells[amtCol].textContent) : 0;
         if (amt >= TOP_THRESHOLD && name !== "") {
-          rows.push([name, org, String(amt), SOURCE_LABELS[id] || id]);
+          rows.push([name, org, String(amt), SOURCE_LABELS[id] || id, ""]);
         }
       });
     });
@@ -724,7 +785,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     applyFilters(tableId);
   }
 
-  // ---- 방명록 대조: 당일 방문 축의금 표의 "방명록" 열을 tbl-guestbook과 실시간으로 대조 ----
+  // ---- 방명록 대조: 아래 모든 표를 tbl-guestbook과 실시간으로 대조 ----
   function normalizeName(s) {
     return String(s || "").replace(/[.\s·,]/g, "").toLowerCase();
   }
@@ -741,25 +802,38 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return set;
   }
 
+  // 표별로 "성명(또는 단체명)" 칸의 위치(nameIdx)와 "방명록" 결과 칸의 위치(checkIdx)가 다르므로 표마다 지정
+  const GUESTBOOK_CHECK_TABLES = [
+    { id: "tbl-bank",   nameIdx: 2, checkIdx: 6 },
+    { id: "tbl-venue",  nameIdx: 1, checkIdx: 5 },
+    { id: "tbl-acct1",  nameIdx: 2, checkIdx: 6 },
+    { id: "tbl-acct2",  nameIdx: 2, checkIdx: 6 },
+    { id: "tbl-acct3",  nameIdx: 2, checkIdx: 6 },
+    { id: "tbl-wreath", nameIdx: 1, checkIdx: 3 },
+    { id: "tbl-gift",   nameIdx: 2, checkIdx: 4 },
+    { id: "tbl-meal",   nameIdx: 1, checkIdx: 3 },
+    { id: "tbl-top",    nameIdx: 1, checkIdx: 5 }
+  ];
+
   function updateGuestbookMatches() {
-    const venue = document.getElementById("tbl-venue");
-    if (!venue) return;
-    const computedCol = parseInt(venue.dataset.computedCol, 10);
     const guestSet = getGuestbookNameSet();
-    let matchCount = 0;
-    const rows = venue.querySelectorAll("tbody tr");
-    rows.forEach(tr => {
-      const cells = tr.querySelectorAll("td.ed");
-      const nameCell = cells[1]; // [번호,성명,소속,금액,비고,방명록]
-      const checkCell = cells[computedCol];
-      if (!nameCell || !checkCell) return;
-      const isMatch = guestSet.has(normalizeName(nameCell.textContent));
-      checkCell.textContent = isMatch ? "✓ 서명함" : "";
-      checkCell.classList.toggle("gb-match", isMatch);
-      if (isMatch) matchCount++;
+    let totalMatch = 0;
+    GUESTBOOK_CHECK_TABLES.forEach(cfg => {
+      const table = document.getElementById(cfg.id);
+      if (!table) return;
+      table.querySelectorAll("tbody tr").forEach(tr => {
+        const cells = tr.querySelectorAll("td.ed");
+        const nameCell = cells[cfg.nameIdx];
+        const checkCell = cells[cfg.checkIdx];
+        if (!nameCell || !checkCell) return;
+        const isMatch = guestSet.has(normalizeName(nameCell.textContent));
+        checkCell.textContent = isMatch ? "✓ 서명함" : "";
+        checkCell.classList.toggle("gb-match", isMatch);
+        if (isMatch) totalMatch++;
+      });
     });
     const infoEl = document.getElementById("card-guestbook-match");
-    if (infoEl) infoEl.textContent = `방문 축의금과 일치 ${matchCount}명`;
+    if (infoEl) infoEl.textContent = `전체 표와 일치 ${totalMatch}건`;
   }
 
   function attachTableEvents(tableId) {
@@ -929,9 +1003,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   const allTables = ["tbl-bank","tbl-venue","tbl-wreath","tbl-acct1","tbl-acct2","tbl-acct3","tbl-gift","tbl-meal","tbl-guestbook"];
 
   // ---- Export / Import (portable save, independent of browser localStorage) ----
-  function exportAll() {
+  function buildExportPayload() {
     const payload = {};
     allTables.forEach(id => { payload[id] = readRowsFromDom(document.getElementById(id)); });
+    return payload;
+  }
+
+  function exportAll() {
+    const payload = buildExportPayload();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -947,24 +1026,72 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     showToast("파일로 저장되었습니다 (다운로드 폴더 확인)");
   }
 
+  function applyImportedPayload(payload) {
+    allTables.forEach(id => {
+      if (Array.isArray(payload[id])) {
+        saveData(id, payload[id], { silent: true });
+        renderTable(id);
+      }
+    });
+    renderTopTable();
+    updateGuestbookMatches();
+  }
+
   function importAll(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       let payload;
       try { payload = JSON.parse(e.target.result); }
       catch (err) { alert("파일을 읽을 수 없습니다. 올바른 저장 파일인지 확인해 주세요."); return; }
-      allTables.forEach(id => {
-        if (Array.isArray(payload[id])) {
-          saveData(id, payload[id], { silent: true });
-          renderTable(id);
-        }
-      });
-      renderTopTable();
-      updateGuestbookMatches();
+      applyImportedPayload(payload);
       showToast("불러오기가 완료되었습니다 ✓");
     };
     reader.readAsText(file, "utf-8");
   }
+
+  // ---- 클라우드 저장/불러오기 (Vercel 서버리스 API 사용, /api/save·/api/load) ----
+  function setCloudStatus(text) {
+    const el = document.getElementById("cloud-status");
+    if (el) el.textContent = text;
+  }
+
+  async function cloudSave() {
+    setCloudStatus("저장 중…");
+    try {
+      const payload = buildExportPayload();
+      if (typeof window.firebaseSaveLedger !== "function") throw new Error("Firebase 연동이 설정되지 않았습니다");
+      await window.firebaseSaveLedger(payload);
+      const now = new Date();
+      setCloudStatus("☁️ 마지막 클라우드 저장: " + now.toLocaleString("ko-KR"));
+      showToast("클라우드에 저장되었습니다 ✓");
+    } catch (err) {
+      setCloudStatus("클라우드 저장 실패 — Firebase 설정을 확인해 주세요 (" + err.message + ")");
+      showToast("클라우드 저장 실패 ✗");
+    }
+  }
+
+  async function cloudLoad() {
+    setCloudStatus("불러오는 중…");
+    try {
+      if (typeof window.firebaseLoadLedger !== "function") throw new Error("Firebase 연동이 설정되지 않았습니다");
+      const body = await window.firebaseLoadLedger();
+      if (!body.data) {
+        setCloudStatus("클라우드에 저장된 데이터가 아직 없습니다");
+        showToast("클라우드에 저장된 데이터가 없습니다");
+        return;
+      }
+      applyImportedPayload(body.data);
+      const when = body.updatedAt ? new Date(body.updatedAt).toLocaleString("ko-KR") : "알 수 없음";
+      setCloudStatus("☁️ 마지막 클라우드 저장: " + when);
+      showToast("클라우드에서 불러왔습니다 ✓");
+    } catch (err) {
+      setCloudStatus("클라우드 불러오기 실패 — Firebase 설정을 확인해 주세요 (" + err.message + ")");
+      showToast("클라우드 불러오기 실패 ✗");
+    }
+  }
+
+  document.getElementById("btn-cloud-save").addEventListener("click", cloudSave);
+  document.getElementById("btn-cloud-load").addEventListener("click", cloudLoad);
 
   document.getElementById("btn-export").addEventListener("click", exportAll);
   document.getElementById("btn-import").addEventListener("click", () => {
